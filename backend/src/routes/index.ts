@@ -23,12 +23,24 @@ apiRouter.use('/followups', followupRoutes);
 apiRouter.use('/dashboard', dashboardRoutes);
 apiRouter.use('/admin', adminRoutes);
 
-// Health check endpoint
-apiRouter.get('/health', (req, res) => {
+import { prisma } from '../database/prisma';
+
+// Health check endpoint (verifies server and database connection)
+apiRouter.get('/health', async (req, res) => {
+  let dbStatus = 'disconnected';
+  try {
+    // Quick ping to database
+    await prisma.$queryRaw`SELECT 1`;
+    dbStatus = 'connected';
+  } catch (error) {
+    dbStatus = 'disconnected';
+  }
+
   res.json({
-    status: 'HEALTHY',
+    status: 'ok',
     service: 'PSYSCAN AI API',
     version: '1.0.0',
+    database: dbStatus,
     timestamp: new Date().toISOString(),
   });
 });
