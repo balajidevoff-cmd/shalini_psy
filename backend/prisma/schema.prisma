@@ -1,0 +1,504 @@
+// PSYSCAN AI - Prisma Database Schema (Zero-Config SQLite / MySQL compatible)
+// AI-Assisted Psychological Screening Application
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ----------------------------------------------------
+// 1. AUTHENTICATION & ACCESS CONTROL
+// ----------------------------------------------------
+
+model User {
+  id              String         @id @default(uuid())
+  email           String         @unique
+  passwordHash    String         @map("password_hash")
+  firstName       String         @map("first_name")
+  lastName        String         @map("last_name")
+  role            String         @default("PSYCHOLOGIST") // ADMIN, PSYCHOLOGIST, ASSESSOR, PATIENT
+  title           String?        // e.g. "Senior Clinical Psychologist", "Assessor"
+  licenseNumber   String?        @map("license_number")
+  status          String         @default("ACTIVE") // ACTIVE, INACTIVE, SUSPENDED
+  lastLoginAt     DateTime?      @map("last_login_at")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  // Relationships
+  assignedPatients    Patient[]          @relation("AssignedPsychologist")
+  createdAssessments  Assessment[]       @relation("CreatedBy")
+  assignedSessions    AssessmentAssignment[] @relation("AssignedBy")
+  conductedSessions   AssessmentSession[]    @relation("ConductedBy")
+  clinicalReviews     ClinicalReview[]   @relation("ReviewedBy")
+  auditLogs           AuditLog[]
+  notifications       Notification[]
+  followUpPlans       FollowUpPlan[]     @relation("AssignedClinician")
+
+  @@map("users")
+}
+
+// ----------------------------------------------------
+// 2. PATIENT MANAGEMENT & HISTORY
+// ----------------------------------------------------
+
+model Patient {
+  id                  String         @id @default(uuid())
+  patientCode         String         @unique @map("patient_code") // e.g. PSY-10001
+  firstName           String         @map("first_name")
+  lastName            String         @map("last_name")
+  dateOfBirth         DateTime       @map("date_of_birth")
+  age                 Int
+  gender              String         @default("FEMALE") // MALE, FEMALE, OTHER, PREFER_NOT_TO_SAY
+  education           String?
+  occupation          String?
+  maritalStatus       String?        @map("marital_status") // SINGLE, MARRIED, DIVORCED, WIDOWED, SEPARATED, OTHER
+  socioeconomicStatus String?        @map("socioeconomic_status")
+  status              String         @default("ACTIVE") // ACTIVE, INACTIVE, DISCHARGED, ARCHIVED
+
+  // Clinical assignment
+  assignedPsychologistId String?     @map("assigned_psychologist_id")
+  assignedPsychologist   User?       @relation("AssignedPsychologist", fields: [assignedPsychologistId], references: [id], onDelete: SetNull)
+
+  createdAt           DateTime       @default(now()) @map("created_at")
+  updatedAt           DateTime       @updatedAt @map("updated_at")
+
+  // Relationships
+  contact             PatientContact?
+  history             PatientHistory?
+  consentRecords      ConsentRecord[]
+  assignments         AssessmentAssignment[]
+  sessions            AssessmentSession[]
+  followUpPlans       FollowUpPlan[]
+  reports             Report[]
+
+  @@map("patients")
+}
+
+model PatientContact {
+  id                  String    @id @default(uuid())
+  patientId           String    @unique @map("patient_id")
+  patient             Patient   @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  phone               String?
+  email               String?
+  address             String?
+  city                String?
+  state               String?
+  postalCode          String?   @map("postal_code")
+  emergencyName       String?   @map("emergency_name")
+  emergencyRelation   String?   @map("emergency_relation")
+  emergencyPhone      String?   @map("emergency_phone")
+
+  @@map("patient_contacts")
+}
+
+model PatientHistory {
+  id                  String    @id @default(uuid())
+  patientId           String    @unique @map("patient_id")
+  patient             Patient   @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  presentingComplaints String?  @map("presenting_complaints") @db.Text
+  symptomDuration     String?   @map("symptom_duration")
+  medicalHistory      String?   @map("medical_history") @db.Text
+  familyHistory       String?   @map("family_history") @db.Text
+  traumaHistory       String?   @map("trauma_history") @db.Text
+  majorLifeEvents     String?   @map("major_life_events") @db.Text
+  suicidalThoughts    Boolean   @default(false) @map("suicidal_thoughts")
+  selfHarmHistory     Boolean   @default(false) @map("self_harm_history")
+  substanceUse        String?   @map("substance_use") @db.Text
+  sleepPattern        String?   @map("sleep_pattern") @db.Text
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  @@map("patient_histories")
+}
+
+// ----------------------------------------------------
+// 3. CONSENT MANAGEMENT
+// ----------------------------------------------------
+
+model ConsentRecord {
+  id              String         @id @default(uuid())
+  patientId       String         @map("patient_id")
+  patient         Patient        @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  consentType     String         @default("PSYCHOLOGICAL_SCREENING") @map("consent_type")
+  version         String         @default("1.0")
+  status          String         @default("GIVEN") // GIVEN, REVOKED, EXPIRED
+  acceptedBy      String         @map("accepted_by")
+  ipAddress       String?        @map("ip_address")
+  userAgent       String?        @map("user_agent")
+  consentText     String         @map("consent_text") @db.Text
+  grantedAt       DateTime       @default(now()) @map("granted_at")
+  revokedAt       DateTime?      @map("revoked_at")
+
+  @@map("consent_records")
+}
+
+// ----------------------------------------------------
+// 4. ASSESSMENT DEFINITIONS & SCORING
+// ----------------------------------------------------
+
+model AssessmentDomain {
+  id          String        @id @default(uuid())
+  name        String        @unique
+  code        String        @unique
+  description String?
+  orderIndex  Int           @default(0) @map("order_index")
+  assessments Assessment[]
+
+  @@map("assessment_domains")
+}
+
+model Assessment {
+  id                  String             @id @default(uuid())
+  domainId            String             @map("domain_id")
+  domain              AssessmentDomain   @relation(fields: [domainId], references: [id])
+  name                String
+  shortName           String             @map("short_name")
+  description         String?            @db.Text
+  ageMin              Int                @default(12) @map("age_min")
+  ageMax              Int                @default(100) @map("age_max")
+  administrationType  String             @default("SELF_REPORT") @map("administration_type") // SELF_REPORT, CLINICIAN_ADMINISTERED
+  licensingStatus     String             @default("OPEN_ACCESS_DEMO") @map("licensing_status")
+  active              Boolean            @default(true)
+  createdById         String?            @map("created_by_id")
+  createdBy           User?              @relation("CreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt           DateTime           @default(now()) @map("created_at")
+  updatedAt           DateTime           @updatedAt @map("updated_at")
+
+  versions            AssessmentVersion[]
+  assignments         AssessmentAssignment[]
+  sessions            AssessmentSession[]
+
+  @@map("assessments")
+}
+
+model AssessmentVersion {
+  id              String                    @id @default(uuid())
+  assessmentId    String                    @map("assessment_id")
+  assessment      Assessment                @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  version         String                    @default("1.0")
+  instructions    String?                   @db.Text
+  isCurrent       Boolean                   @default(true) @map("is_current")
+  createdAt       DateTime                  @default(now()) @map("created_at")
+
+  questions       AssessmentQuestion[]
+  scoringRules    AssessmentScoringRule[]
+  severityBands   AssessmentSeverityBand[]
+  sessions        AssessmentSession[]
+
+  @@unique([assessmentId, version])
+  @@map("assessment_versions")
+}
+
+model AssessmentQuestion {
+  id                  String             @id @default(uuid())
+  assessmentVersionId String             @map("assessment_version_id")
+  assessmentVersion   AssessmentVersion  @relation(fields: [assessmentVersionId], references: [id], onDelete: Cascade)
+  questionNumber      Int                @map("question_number")
+  questionText        String             @map("question_text") @db.Text
+  questionType        String             @default("SINGLE_CHOICE") @map("question_type")
+  subscale            String?
+  required            Boolean            @default(true)
+  isReverseScored     Boolean            @default(false) @map("is_reverse_scored")
+  riskTriggerValue    Int?               @map("risk_trigger_value")
+  orderIndex          Int                @map("order_index")
+
+  options             AssessmentOption[]
+  responses           AssessmentResponse[]
+
+  @@map("assessment_questions")
+}
+
+model AssessmentOption {
+  id          String             @id @default(uuid())
+  questionId  String             @map("question_id")
+  question    AssessmentQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  label       String
+  value       Int
+  orderIndex  Int                @map("order_index")
+
+  @@map("assessment_options")
+}
+
+model AssessmentScoringRule {
+  id                  String             @id @default(uuid())
+  assessmentVersionId String             @map("assessment_version_id")
+  assessmentVersion   AssessmentVersion  @relation(fields: [assessmentVersionId], references: [id], onDelete: Cascade)
+  subscaleName        String?            @map("subscale_name")
+  scoringMethod       String             @default("SUM") @map("scoring_method")
+  minScore            Int                @default(0) @map("min_score")
+  maxScore            Int                @map("max_score")
+  cutoffScore         Int?               @map("cutoff_score")
+  ruleJson            String?            @map("rule_json") @db.Text
+
+  @@map("assessment_scoring_rules")
+}
+
+model AssessmentSeverityBand {
+  id                  String             @id @default(uuid())
+  assessmentVersionId String             @map("assessment_version_id")
+  assessmentVersion   AssessmentVersion  @relation(fields: [assessmentVersionId], references: [id], onDelete: Cascade)
+  subscaleName        String?            @map("subscale_name")
+  minScore            Int                @map("min_score")
+  maxScore            Int                @map("max_score")
+  severityLabel       String             @map("severity_label")
+  colorHex            String             @default("#10B981") @map("color_hex")
+  clinicalDescription String?            @map("clinical_description") @db.Text
+  orderIndex          Int                @map("order_index")
+
+  @@map("assessment_severity_bands")
+}
+
+// ----------------------------------------------------
+// 5. ASSESSMENT SESSIONS & RESPONSES
+// ----------------------------------------------------
+
+model AssessmentAssignment {
+  id              String         @id @default(uuid())
+  patientId       String         @map("patient_id")
+  patient         Patient        @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  assessmentId    String         @map("assessment_id")
+  assessment      Assessment     @relation(fields: [assessmentId], references: [id])
+  assignedById    String         @map("assigned_by_id")
+  assignedBy      User           @relation("AssignedBy", fields: [assignedById], references: [id])
+  assignedAt      DateTime       @default(now()) @map("assigned_at")
+  dueDate         DateTime?      @map("due_date")
+  notes           String?        @db.Text
+  status          String         @default("PENDING")
+
+  sessions        AssessmentSession[]
+
+  @@map("assessment_assignments")
+}
+
+model AssessmentSession {
+  id                  String             @id @default(uuid())
+  patientId           String             @map("patient_id")
+  patient             Patient            @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  assessmentId        String             @map("assessment_id")
+  assessment          Assessment         @relation(fields: [assessmentId], references: [id])
+  assessmentVersionId String             @map("assessment_version_id")
+  assessmentVersion   AssessmentVersion  @relation(fields: [assessmentVersionId], references: [id])
+  assignmentId        String?            @map("assignment_id")
+  assignment          AssessmentAssignment? @relation(fields: [assignmentId], references: [id], onDelete: SetNull)
+  conductedById       String?            @map("conducted_by_id")
+  conductedBy         User?              @relation("ConductedBy", fields: [conductedById], references: [id], onDelete: SetNull)
+
+  status              String             @default("DRAFT") // DRAFT, IN_PROGRESS, COMPLETED, UNDER_REVIEW, REVIEWED, FINALIZED
+  currentQuestionIndex Int               @default(0) @map("current_question_index")
+  startedAt           DateTime?          @map("started_at")
+  completedAt         DateTime?          @map("completed_at")
+  createdAt           DateTime           @default(now()) @map("created_at")
+  updatedAt           DateTime           @updatedAt @map("updated_at")
+
+  // Relationships
+  responses           AssessmentResponse[]
+  score               AssessmentScore?
+  aiAnalysis          AIAnalysis?
+  clinicalReview      ClinicalReview?
+  reports             Report[]
+
+  @@map("assessment_sessions")
+}
+
+model AssessmentResponse {
+  id              String             @id @default(uuid())
+  sessionId       String             @map("session_id")
+  session         AssessmentSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  questionId      String             @map("question_id")
+  question        AssessmentQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  responseValue   Int                @map("response_value")
+  responseText    String?            @map("response_text") @db.Text
+  answeredAt      DateTime           @default(now()) @map("answered_at")
+
+  @@unique([sessionId, questionId])
+  @@map("assessment_responses")
+}
+
+model AssessmentScore {
+  id              String                    @id @default(uuid())
+  sessionId       String                    @unique @map("session_id")
+  session         AssessmentSession         @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  rawScore        Int                       @map("raw_score")
+  maxPossibleScore Int                      @map("max_possible_score")
+  standardScore   Float?                    @map("standard_score")
+  percentile      Float?
+  severity        String
+  severityColor   String                    @default("#F59E0B") @map("severity_color")
+  hasRiskFlag     Boolean                   @default(false) @map("has_risk_flag")
+  riskFlagDetails String?                   @map("risk_flag_details") @db.Text
+  interpretation  String                    @db.Text
+  scoredAt        DateTime                  @default(now()) @map("scored_at")
+
+  subscaleScores  AssessmentSubscaleScore[]
+
+  @@map("assessment_scores")
+}
+
+model AssessmentSubscaleScore {
+  id              String          @id @default(uuid())
+  scoreId         String          @map("score_id")
+  score           AssessmentScore @relation(fields: [scoreId], references: [id], onDelete: Cascade)
+  subscaleName    String          @map("subscale_name")
+  rawScore        Int             @map("raw_score")
+  maxScore        Int             @map("max_score")
+  severity        String?
+  colorHex        String          @default("#3B82F6") @map("color_hex")
+
+  @@map("assessment_subscale_scores")
+}
+
+// ----------------------------------------------------
+// 6. AI ANALYSIS & EXPLAINABILITY
+// ----------------------------------------------------
+
+model AIAnalysis {
+  id              String             @id @default(uuid())
+  sessionId       String             @unique @map("session_id")
+  session         AssessmentSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  modelName       String             @map("model_name")
+  modelVersion    String             @map("model_version")
+  promptVersion   String             @map("prompt_version")
+  summary         String             @db.Text
+  riskObservation String?            @map("risk_observation") @db.Text
+  rawResponseJson String?            @map("raw_response_json") @db.LongText
+  generatedAt     DateTime           @default(now()) @map("generated_at")
+  status          String             @default("AWAITING_REVIEW")
+
+  suggestions     AISuggestion[]
+
+  @@map("ai_analyses")
+}
+
+model AISuggestion {
+  id                  String             @id @default(uuid())
+  aiAnalysisId        String             @map("ai_analysis_id")
+  aiAnalysis          AIAnalysis         @relation(fields: [aiAnalysisId], references: [id], onDelete: Cascade)
+  suggestionType      String             @map("suggestion_type") // SYMPTOM_PATTERN, SEVERITY_OBSERVATION, RISK_FLAG, AREA_OF_CONCERN, FURTHER_ASSESSMENT, REFERRAL_CONSIDERATION, UNCERTAINTY_NOTE
+  title               String
+  content             String             @db.Text
+  confidenceLevel     String?            @default("MODERATE") @map("confidence_level")
+  inputReferencesJson String?            @map("input_references_json") @db.Text
+  status              String             @default("PENDING") // PENDING, ACCEPTED, MODIFIED, REJECTED
+  decisionComment     String?            @map("decision_comment") @db.Text
+  modifiedContent     String?            @map("modified_content") @db.Text
+  decidedAt           DateTime?          @map("decided_at")
+  orderIndex          Int                @default(0) @map("order_index")
+
+  @@map("ai_suggestions")
+}
+
+// ----------------------------------------------------
+// 7. CLINICAL REVIEW & PSYCHOLOGIST DECISIONS
+// ----------------------------------------------------
+
+model ClinicalReview {
+  id                    String               @id @default(uuid())
+  sessionId             String               @unique @map("session_id")
+  session               AssessmentSession    @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  psychologistId        String               @map("psychologist_id")
+  psychologist          User                 @relation("ReviewedBy", fields: [psychologistId], references: [id])
+  psychologistName      String               @map("psychologist_name")
+  clinicalInterview     String?              @map("clinical_interview") @db.Text
+  clinicalObservations  String?              @map("clinical_observations") @db.Text
+  areasOfConcern        String?              @map("areas_of_concern") @db.Text
+  riskLevel             String               @default("LOW") @map("risk_level") // LOW, MODERATE, HIGH
+  riskJustification     String?              @map("risk_justification") @db.Text
+  recommendations       String?              @db.Text
+  furtherAssessments    String?              @map("further_assessments") @db.Text
+  referralPlan          String?              @map("referral_plan") @db.Text
+  followUpPlanNotes     String?              @map("follow_up_plan_notes") @db.Text
+  finalClinicalImpression String?            @map("final_clinical_impression") @db.Text
+  status                String               @default("DRAFT") // DRAFT, FINALIZED
+  reviewedAt            DateTime?            @map("reviewed_at")
+  createdAt             DateTime             @default(now()) @map("created_at")
+  updatedAt             DateTime             @updatedAt @map("updated_at")
+
+  @@map("clinical_reviews")
+}
+
+// ----------------------------------------------------
+// 8. FOLLOW-UP PLANS & REPORTS
+// ----------------------------------------------------
+
+model FollowUpPlan {
+  id                  String         @id @default(uuid())
+  patientId           String         @map("patient_id")
+  patient             Patient        @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  assignedClinicianId String?        @map("assigned_clinician_id")
+  assignedClinician   User?          @relation("AssignedClinician", fields: [assignedClinicianId], references: [id], onDelete: SetNull)
+  scheduledDate       DateTime       @map("scheduled_date")
+  followUpType        String         @default("ROUTINE_SCREENING_REVIEW") @map("follow_up_type")
+  purpose             String         @db.Text
+  notes               String?        @db.Text
+  status              String         @default("SCHEDULED") // PENDING, SCHEDULED, COMPLETED, MISSED, CANCELLED
+  reminderSent        Boolean        @default(false) @map("reminder_sent")
+  createdAt           DateTime       @default(now()) @map("created_at")
+  updatedAt           DateTime       @updatedAt @map("updated_at")
+
+  @@map("follow_up_plans")
+}
+
+model Report {
+  id                  String            @id @default(uuid())
+  patientId           String            @map("patient_id")
+  patient             Patient           @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  sessionId           String            @map("session_id")
+  session             AssessmentSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  reportNumber        String            @unique @map("report_number")
+  title               String            @default("AI-Assisted Psychological Screening Report")
+  version             Int               @default(1)
+  reviewedByName      String            @map("reviewed_by_name")
+  reviewedByRole      String            @default("Psychologist") @map("reviewed_by_role")
+  pdfPath             String?           @map("pdf_path")
+  summaryJson         String?           @map("summary_json") @db.LongText
+  generatedAt         DateTime          @default(now()) @map("generated_at")
+
+  @@map("reports")
+}
+
+// ----------------------------------------------------
+// 9. AUDIT LOGGING & SYSTEM SETTINGS
+// ----------------------------------------------------
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  userId      String?  @map("user_id")
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userEmail   String?  @map("user_email")
+  action      String
+  entityType  String   @map("entity_type")
+  entityId    String?  @map("entity_id")
+  ipAddress   String?  @map("ip_address")
+  metadata    String?  @db.Text
+  timestamp   DateTime @default(now())
+
+  @@map("audit_logs")
+}
+
+model Notification {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title       String
+  message     String   @db.Text
+  type        String   @default("INFO")
+  linkUrl     String?  @map("link_url")
+  isRead      Boolean  @default(false) @map("is_read")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("notifications")
+}
+
+model SystemSetting {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  value       String   @db.Text
+  description String?  @db.Text
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("system_settings")
+}
+
