@@ -1,6 +1,61 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none">
-  <rect width="50" height="100" rx="20" fill="#0F294A"/>
-  <circle cx="25" cy="25" r="16" stroke="#3B82F6" stroke-width="2" stroke-dasharray="6 4"/>
-  <path d="M35 48C35 40 42 35 50 35C58 35 65 40 65 48C65 55 58 60 50 65V70" stroke="#60A5FA" stroke-width="4" stroke-linecap="round"/>
-  <circle cx="50" cy="78" r="3.5" fill="#38BDF8"/>
+
+  <!-- TOVIX Icon - 25% -->
+  <rect
+    x="2"
+    y="25"
+    width="22"
+    height="50"
+    rx="9"
+    fill="#0F294A"
+  />
+
+  <!-- T Symbol -->
+  <path
+    d="M7 36H19"
+    stroke="#3B82F6"
+    stroke-width="3"
+    stroke-linecap="round"
+  />
+
+  <path
+    d="M13 36V55"
+    stroke="#60A5FA"
+    stroke-width="3"
+    stroke-linecap="round"
+  />
+
+  <!-- Tool Network -->
+  <circle cx="7" cy="63" r="2" fill="#3B82F6"/>
+  <circle cx="13" cy="63" r="2" fill="#38BDF8"/>
+  <circle cx="19" cy="63" r="2" fill="#60A5FA"/>
+
+  <path
+    d="M7 63H19"
+    stroke="#2563EB"
+    stroke-width="1.5"
+  />
+
+  <!-- TOVIX -->
+  <text
+    x="29"
+    y="47"
+    font-family="Arial, Helvetica, sans-serif"
+    font-size="17"
+    font-weight="800"
+    letter-spacing="1"
+    fill="#F8FAFC"
+  >TOVIX</text>
+
+  <!-- Tagline -->
+  <text
+    x="29"
+    y="61"
+    font-family="Arial, Helvetica, sans-serif"
+    font-size="5"
+    font-weight="500"
+    letter-spacing="0.8"
+    fill="#60A5FA"
+  >ALL TOOLS IN ONE PLACE</text>
+
 </svg>
